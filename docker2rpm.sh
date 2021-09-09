@@ -1,12 +1,58 @@
 #!/bin/bash
 mydir=$(pwd)
 
-image=eu.gcr.io/cloud-build-dev/inaccess/unity-pyroshield
-tag=0.9.0
+#defaults
+OPT_IMAGE=eu.gcr.io/cloud-build-dev/inaccess/unity-pyroshield
+OPT_TAG=0.9.0
+OPT_DOCKER="docker -H unix:///var/run/docker.sock "
+OPT_SYSTEMD="none"
+OPT_MOUNTBIND=""
+OPT_CHROOT_BASEDIR="/opt/inaccess"
+
+function showhelp() {
+   echo -e ""
+   echo -e "options:"
+   echo -e "\t-n <name>\t package name"
+   echo -e "\t-t <version>\t image tag"
+   echo -e "\t-d <docker cmd>\t docker command and options"
+   echo -e "\t-s <type>\t systemd type, one of: [none, simple, forking]"
+   echo -e "\t-b <dir>\t chroot basedir. Defaults to /opt/inaccess/, chroot FS is /opt/inaccess/<name>"
+   echo -e "\t-m <mount>\t bind mounts, 'dir_in_os_fs:dir_under_chroot_fs'"
+   echo ""
+}
+
+while getopts "hn:u:t:d:b:s:m:" OPTION
+do
+    case $OPTION in
+        h) showhelp
+           exit
+           ;;
+        n) export OPT_NAME=${OPTARG}
+        ;;
+        t) export OPT_TAG=${OPTARG}
+        ;;
+        r) export OPT_PRJNAME=${OPTARG}
+        ;;
+        d) export OPT_DOCKER="${OPTARG}"
+        ;;
+        s) export OPT_SYSTEMD=${OPTARG}
+        ;;
+        m) export OPT_MOUNTBIND="${OPTARG}"
+        ;;
+        *) showhelp
+           exit
+           ;;
+    esac
+done
+
+
+image=$OPT_IMAGE
+tag=$OPT_TAG
 url=${image}:${tag}
 name=$(basename $image)
+chroot_basedir=$OPT_CHROOT_BASEDIR
+DOCKER="$OPT_DOCKER"
 
-DOCKER="docker -H unix:///var/run/docker.sock "
 
 
 $DOCKER pull $url
@@ -51,7 +97,7 @@ echo "Saved configuration from $config_fn in package-config/"
 
 mkdir -p slash/etc/sysconfig
 cat package-config/environment > slash/etc/sysconfig/$name
-CONFFLAG="-config-files /etc/sysconfig/$name"
+CONFFLAG="--config-files $chroot_basedir/$name/etc/sysconfig/$name"
 
 function systemd_simple() {
 #systemd scripts:
@@ -77,17 +123,18 @@ EOT
 
 
 # Move under chroot
-mkdir -p rootdir/opt/inaccess/
-mv slash rootdir/opt/inaccess/$name
+mkdir -p rootdir/$chroot_basedir
+mv slash rootdir/$chroot_basedir/$name
 
-echo "Creating Package using rootdir/ as root"
+echo "Creating Package using $PWD/rootdir/ as root"
 fpm -f -t rpm -s dir --verbose -n inaccess-${name} -v ${tag} \
   --description "inaccess-$name" \
   -a all \
   --iteration 1 \
-  ${CONFFLAG}\
+  ${CONFFLAG} \
   --url 'https://www.inaccess.com' \
   -C rootdir/ .
+
 echo "Done"
 
 #$DOCKER image prune --force -a --filter "until=48h"
