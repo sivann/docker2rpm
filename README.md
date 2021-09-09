@@ -1,29 +1,21 @@
-# README #
+# docker2rpm #
 
-This README would normally document whatever steps are necessary to get your application up and running.
+Converts a docker image to an rpm package which runs via chroot
 
-### What is this repository for? ###
+### Does it work ?? ###
 
-* Quick summary
-* Version
-* [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
+It has a good chance
 
-### How do I get set up? ###
+### Why?? ###
 
-* Summary of set up
-* Configuration
-* Dependencies
-* Database configuration
-* How to run tests
-* Deployment instructions
+Quick hack to run something without docker support
 
-### Contribution guidelines ###
 
-* Writing tests
-* Code review
-* Other guidelines
+### Should I use it in production ?? ###
 
-### Who do I talk to? ###
+Probably not.
 
-* Repo owner or admin
-* Other community or team contact
+### Disadvantages ###
+
+* no container isolation
+* big sizes (no layer sharing with other docker images)

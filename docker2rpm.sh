@@ -14,6 +14,7 @@ RET=$?
 # $DOCKER login -u _json_key -p "$(cat cloudev.key)" https://eu.gcr.io
 if [[ "$RET" != "0" ]] ; then
 	echo "An error occured while pulling $url, exiting"
+        echo "Maybe try: "  docker login -u _json_key -p '$(cat cloudev.key)' https://eu.gcr.io
 	exit
 fi
 
@@ -31,11 +32,14 @@ cd $name
 
 echo "Extracting ${name}.tar"
 tar xf ../${name}.tar
+echo "Done"
 
 # Extract layers under slash/
 mkdir slash ; cd slash
+echo "Extracting layers in $PWD"
 find .. -name layer.tar -exec tar xf {} \;
 cd ..
+echo "Done extracting layers"
 
 #detect configuration
 mkdir package-config
@@ -43,6 +47,7 @@ config_fn=$(cat manifest.json |jq '.[].Config'|tr -d '"')
 cat $config_fn |jq .config.Env[] | tr -d '""' > package-config/environment
 cat $config_fn |jq .config.Entrypoint[] | tr '\n' ' ' > package-config/entrypoint
 entrypoint=$(cat package-config/entrypoint)
+echo "Saved configuration from $config_fn in package-config/"
 
 mkdir -p slash/etc/sysconfig
 cat package-config/environment > slash/etc/sysconfig/$name
@@ -69,11 +74,13 @@ WantedBy=multi-user.target
 EOT
 }
 
+
+
 # Move under chroot
 mkdir -p rootdir/opt/inaccess/
 mv slash rootdir/opt/inaccess/$name
 
-echo "Creating Package"
+echo "Creating Package using rootdir/ as root"
 fpm -f -t rpm -s dir --verbose -n inaccess-${name} -v ${tag} \
   --description "inaccess-$name" \
   -a all \
@@ -81,5 +88,6 @@ fpm -f -t rpm -s dir --verbose -n inaccess-${name} -v ${tag} \
   ${CONFFLAG}\
   --url 'https://www.inaccess.com' \
   -C rootdir/ .
+echo "Done"
 
-$DOCKER image prune --force -a --filter "until=48h"
+#$DOCKER image prune --force -a --filter "until=48h"
