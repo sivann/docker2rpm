@@ -152,9 +152,6 @@ for OPT_MOUNTBIND in "${OPT_MOUNTBIND[@]}"; do
 	> slash/usr/lib/systemd/system/${where_esc}.mount
 done
 
-
-exit;
-
 echo "Creating Package using $PWD/slash/ as root"
 fpm -f -t rpm -s dir --verbose -n inaccess-${name} -v ${tag} \
   --description "inaccess-$name" \
