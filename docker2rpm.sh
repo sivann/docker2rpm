@@ -59,7 +59,7 @@ tag=$OPT_TAG
 url=${image}:${tag}
 name=$(basename $image)
 chroot_basedir=$OPT_CHROOT_BASEDIR
-chroot_localdir=slash/$chroot_basedir/$name
+chroot_localdir="slash/$chroot_basedir/$name"
 DOCKER="$OPT_DOCKER"
 svcname=$(systemd-escape "$name")
 
@@ -73,7 +73,7 @@ if [[ "$RET" != "0" ]] ; then
 	exit
 fi
 
-if [[ ! -f ${name}.tar ]] ;  then
+if [[ ! -f tmp/${name}.tar ]] ;  then
 	echo "Saving ${name}.tar ..."
 	$DOCKER save $url -o tmp/${name}.tar
 else
@@ -84,70 +84,76 @@ fi
 cd tmp/
 rm -fr "$name" ; mkdir $name; 
 cd $name
+pdir=$(pwd)
+
+mkdir docker-layers
 
 echo "Extracting ${name}.tar ..."
-tar xf ../${name}.tar
+tar xf ../${name}.tar -C docker-layers/
 echo "Done"
 
-# Extract layers under slash/
-mkdir slash ; cd slash
-mkdir -p $chroot_localdir  #slash/opt/inaccess/koko/
+# Extract layers under slash/$chroot_localdir
+mkdir -p "$chroot_localdir"  #slash/opt/inaccess/koko/
 
+cd "$chroot_localdir"/
 echo "Extracting layers in $PWD ..."
-find .. -name layer.tar -exec tar xf {} \;
-cd ..
+find $pdir/docker-layers -name layer.tar -exec tar xf {} \;
 echo "Done extracting layers"
+cd $pdir
 
 #detect configuration
 mkdir package-config
-config_fn=$(cat manifest.json |jq '.[].Config'|tr -d '"')
-cat $config_fn |jq .config.Env[] | tr -d '""' > package-config/environment
-cat $config_fn |jq .config.Entrypoint[] | tr '\n' ' ' > package-config/entrypoint
+config_fn=$(cat docker-layers/manifest.json |jq '.[].Config'|tr -d '"')
+cat docker-layers/$config_fn |jq .config.Env[] | tr -d '""' > package-config/environment
+cat docker-layers/$config_fn |jq .config.Entrypoint[] | tr '\n' ' ' > package-config/entrypoint
 entrypoint=$(cat package-config/entrypoint)
-echo "Saved configuration from $config_fn in package-config/"
+echo "Saved configuration from docker-layers/$config_fn in package-config/"
 
 mkdir -p slash/etc/sysconfig
-cat package-config/environment > slash/etc/sysconfig/$svcname
-CONFFLAG="--config-files $chroot_basedir/$name/etc/sysconfig/$svcname"
+cat package-config/environment > "slash/etc/sysconfig/$svcname"
+CONFFLAG="--config-files /etc/sysconfig/$svcname"
 
 function systemd_simple() {
-
+	echo "Creating systemd service ($svcname)"
+	cd $pdir/
+	mkdir -p "./slash/usr/lib/systemd/system/"
 	cat $topdir/templates/systemd/svc1.service | \
-	sed \
-	-e "s/__svcname__/$svcname/g" \
-	-e "s/__name__/$name/g" \
-	-e "s,__execstart__,/usr/sbin/chroot \"${chroot_basedir}/${name}/\" $entrypoint," \
-	> slash/usr/lib/systemd/system/${svcname}.service
+	sed -e "s/__svcname__/$svcname/g" |\
+	sed -e "s/__name__/$name/g" | \
+	sed -e "s,__execstart__,/usr/sbin/chroot \"${chroot_basedir}/${name}/\" $entrypoint,g" > "./slash/usr/lib/systemd/system/${svcname}.service"
 }
 
-if [[ "$OPT_SYSTEMD" == "simple" ]] ; then
+if [[ "$OPT_SYSTEMD" = "simple" ]] ; then
     systemd_simple
 fi
 
 # bind mounts
-echo "Provided arguments:"
+cd $pdir
 for OPT_MOUNTBIND in "${OPT_MOUNTBIND[@]}"; do
 	if [[ -z "${OPT_MOUNTBIND}" ]] ; then
 		continue
 	fi
 	mkdir -p slash/usr/lib/systemd/system/
-	echo "${OPT_MOUNTBIND}"
+	echo "Creating systemd bind for ${OPT_MOUNTBIND}"
 
 	what=$(echo "$OPT_MOUNTBIND" | cut -d: -f1)
 	where=$(echo "$OPT_MOUNTBIND" | cut -d: -f2)
 	where_fullpath=${chroot_basedir}/${name}/${where}
 	where_esc=$(systemd-escape -p "$where_fullpath")
-	mkdir -p slash/$where
+	
+	mkdir -p slash/$where_fullpath
 
 	cat $topdir/templates/systemd/dir1.mount | \
 	sed \
-	-e "s/__svcname__/$svcname/g" \
-	-e "s/__name__/$name/g" \
-	-e  "s/__what__/$what/g" \
-	-e  "s/__where__/$where_fullpath/g" \
+	-e "s,__svcname__,$svcname,g" \
+	-e "s,__name__,$name,g" \
+	-e  "s,__what__,$what,g" \
+	-e  "s,__where__,$where_fullpath,g" \
 	> slash/usr/lib/systemd/system/${where_esc}.mount
 done
 
+
+exit;
 
 echo "Creating Package using $PWD/slash/ as root"
 fpm -f -t rpm -s dir --verbose -n inaccess-${name} -v ${tag} \

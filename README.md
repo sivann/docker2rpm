@@ -6,7 +6,8 @@ Converts a docker image to an rpm package which runs via chroot
 
 * Downloads and extracts the docker image layers
 * guesses environment and entrypoint from manifest
-* creates optional systemd service for entrypoint startup and bind mounts for configuration
+* creates optional systemd service for chrooted entrypoint
+* creates systemd service.mount bind mounts (specified during pkg creation)
 * creates rpm package with fpm
 
 ```
