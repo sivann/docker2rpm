@@ -1,6 +1,6 @@
 # docker2rpm #
 
-Converts a docker image to an rpm package which runs via chroot
+Converts a docker image to an rpm package which runs via systemd in a chrooted environment. Supports bind mounts for configuration files, etc.
 
 ### How ? ###
 
@@ -9,6 +9,7 @@ Converts a docker image to an rpm package which runs via chroot
 * creates optional systemd service for chrooted entrypoint
 * creates systemd service.mount bind mounts (specified during pkg creation)
 * creates rpm package with fpm
+* bind mounts are created and stopped upon service start/stop (provided you have enabled the services first)
 
 ```
 options:
