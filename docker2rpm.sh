@@ -1,5 +1,6 @@
 #!/bin/bash
-mydir=$(pwd)
+
+topdir=$(pwd)
 
 #defaults
 OPT_IMAGE=eu.gcr.io/cloud-build-dev/inaccess/unity-pyroshield
@@ -12,16 +13,18 @@ OPT_CHROOT_BASEDIR="/opt/inaccess"
 function showhelp() {
    echo -e ""
    echo -e "options:"
-   echo -e "\t-n <name>\t package name"
-   echo -e "\t-t <version>\t image tag"
-   echo -e "\t-d <docker cmd>\t docker command and options"
-   echo -e "\t-s <type>\t systemd type, one of: [none, simple, forking]"
-   echo -e "\t-b <dir>\t chroot basedir. Defaults to /opt/inaccess/, chroot FS is /opt/inaccess/<name>"
-   echo -e "\t-m <mount>\t bind mounts, 'dir_in_os_fs:dir_under_chroot_fs'"
+   echo -e "\t-n <name>\t\t package name"
+   echo -e "\t-t <version>\t\t image tag"
+   echo -e "\t-d <docker cmd>\t\t docker command and options"
+   echo -e "\t-c <chroot basedir>\t chroot basedir, (default=$OPT_CHROOT_BASEDIR), data under $OPT_CHROOT_BASEDIR/<name>"
+   echo -e "\t-s <type>\t\t systemd type, one of: [none, simple, forking]"
+   echo -e "\t-m <what:where>\t\t bind mounts, can be specified multiple times. e.g.: -m /etc:/configs/etc"
+   echo -e "\t\t\t\t <what>: absolute path in system FS"
+   echo -e "\t\t\t\t <where>: path under chroot, not incuding chroot basedir"
    echo ""
 }
 
-while getopts "hn:u:t:d:b:s:m:" OPTION
+while getopts "hn:u:t:d:s:m:c:" OPTION
 do
     case $OPTION in
         h) showhelp
@@ -37,7 +40,11 @@ do
         ;;
         s) export OPT_SYSTEMD=${OPTARG}
         ;;
-        m) export OPT_MOUNTBIND="${OPTARG}"
+        c) export OPT_CHROOT_BASEDIR=${OPTARG}
+        ;;
+        m) 
+		OPT_MOUNTBIND+=("$OPTARG")
+		export OPT_MOUNTBIND
         ;;
         *) showhelp
            exit
@@ -52,7 +59,7 @@ url=${image}:${tag}
 name=$(basename $image)
 chroot_basedir=$OPT_CHROOT_BASEDIR
 DOCKER="$OPT_DOCKER"
-
+svcname=$(systemd-escape "$name")
 
 
 $DOCKER pull $url
@@ -65,7 +72,7 @@ if [[ "$RET" != "0" ]] ; then
 fi
 
 if [[ ! -f ${name}.tar ]] ;  then
-	echo "Saving ${name}.tar"
+	echo "Saving ${name}.tar ..."
 	$DOCKER save $url -o tmp/${name}.tar
 else
 	echo ${name}.tar already found
@@ -76,13 +83,13 @@ cd tmp/
 rm -fr "$name" ; mkdir $name; 
 cd $name
 
-echo "Extracting ${name}.tar"
+echo "Extracting ${name}.tar ..."
 tar xf ../${name}.tar
 echo "Done"
 
 # Extract layers under slash/
 mkdir slash ; cd slash
-echo "Extracting layers in $PWD"
+echo "Extracting layers in $PWD ..."
 find .. -name layer.tar -exec tar xf {} \;
 cd ..
 echo "Done extracting layers"
@@ -96,31 +103,46 @@ entrypoint=$(cat package-config/entrypoint)
 echo "Saved configuration from $config_fn in package-config/"
 
 mkdir -p slash/etc/sysconfig
-cat package-config/environment > slash/etc/sysconfig/$name
-CONFFLAG="--config-files $chroot_basedir/$name/etc/sysconfig/$name"
+cat package-config/environment > slash/etc/sysconfig/$svcname
+CONFFLAG="--config-files $chroot_basedir/$name/etc/sysconfig/$svcname"
 
 function systemd_simple() {
-#systemd scripts:
-mkdir -p slash/usr/lib/systemd/system/
-cat << EOT > slash/usr/lib/systemd/system/${name}.service
-[Unit]
-Description=$name
-After=network.target
 
-[Service]
-Type=simple
-EnvironmentFile=/etc/sysconfig/$name
-ExecStart=$entrypoint
-Restart=always
-RestartSec=10
-LimitNOFILE=300000
-
-[Install]
-WantedBy=multi-user.target
-EOT
+	cat $topdir/templates/systemd/svc1.service | \
+	sed \
+	-e "s/__svcname__/$svcname/g" \
+	-e "s/__name__/$name/g" \
+	-e "s,__execstart__,/usr/sbin/chroot \"${chroot_basedir}/${name}/\" $entrypoint," \
+	> slash/usr/lib/systemd/system/${svcname}.service
 }
 
+if [[ "$OPT_SYSTEMD" == "simple" ]] ; then
+    systemd_simple
+fi
 
+# bind mounts
+echo "Provided arguments:"
+for OPT_MOUNTBIND in "${OPT_MOUNTBIND[@]}"; do
+	if [[ -z "${OPT_MOUNTBIND}" ]] ; then
+		continue
+	fi
+	mkdir -p slash/usr/lib/systemd/system/
+	echo "  \"${OPT_MOUNTBIND}\""
+
+	what=$(echo "$OPT_MOUNTBIND" | cut -d: -f1)
+	where=$(echo "$OPT_MOUNTBIND" | cut -d: -f2)
+	where_fullpath=${chroot_basedir}/${name}/${where}
+	where_esc=$(systemd-escape -p "$where")
+	mkdir -p slash/$where_fullpath
+
+	cat $topdir/templates/systemd/dir1.mount | \
+	sed \
+	-e "s/__svcname__/$svcname/g" \
+	-e "s/__name__/$name/g" \
+	-e  "s/__what__/$what/g" \
+	-e  "s/__where__/$where_fullpath/g" \
+	> slash/usr/lib/systemd/system/${where_esc}.mount
+done
 
 # Move under chroot
 mkdir -p rootdir/$chroot_basedir

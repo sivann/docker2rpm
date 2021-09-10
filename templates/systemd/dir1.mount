@@ -1,0 +1,15 @@
+[Unit]
+Description=__svcname__ bind mount
+Before=__svcname__.service
+PartOf=__svcname__.service
+
+[Install]
+RequiredBy=__svcname__.service
+
+[Mount]
+#What=/etc
+#Where=/opt/inaccess/koko/etc
+What=__what__
+Where=__where__
+Options=bind
+TimeoutSec=5

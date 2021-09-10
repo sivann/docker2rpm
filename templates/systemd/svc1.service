@@ -1,0 +1,14 @@
+[Unit]
+Description=__name__
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/sysconfig/__svcname__
+ExecStart=__execstart__
+Restart=always
+RestartSec=10
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target
