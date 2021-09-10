@@ -13,6 +13,7 @@ OPT_CHROOT_BASEDIR="/opt/inaccess"
 function showhelp() {
    echo -e ""
    echo -e "options:"
+   echo -e "\t-h       \t\t this help"
    echo -e "\t-n <name>\t\t package name"
    echo -e "\t-t <version>\t\t image tag"
    echo -e "\t-d <docker cmd>\t\t docker command and options"
@@ -58,6 +59,7 @@ tag=$OPT_TAG
 url=${image}:${tag}
 name=$(basename $image)
 chroot_basedir=$OPT_CHROOT_BASEDIR
+chroot_localdir=slash/$chroot_basedir/$name
 DOCKER="$OPT_DOCKER"
 svcname=$(systemd-escape "$name")
 
@@ -89,6 +91,8 @@ echo "Done"
 
 # Extract layers under slash/
 mkdir slash ; cd slash
+mkdir -p $chroot_localdir  #slash/opt/inaccess/koko/
+
 echo "Extracting layers in $PWD ..."
 find .. -name layer.tar -exec tar xf {} \;
 cd ..
@@ -127,13 +131,13 @@ for OPT_MOUNTBIND in "${OPT_MOUNTBIND[@]}"; do
 		continue
 	fi
 	mkdir -p slash/usr/lib/systemd/system/
-	echo "  \"${OPT_MOUNTBIND}\""
+	echo "${OPT_MOUNTBIND}"
 
 	what=$(echo "$OPT_MOUNTBIND" | cut -d: -f1)
 	where=$(echo "$OPT_MOUNTBIND" | cut -d: -f2)
 	where_fullpath=${chroot_basedir}/${name}/${where}
-	where_esc=$(systemd-escape -p "$where")
-	mkdir -p slash/$where_fullpath
+	where_esc=$(systemd-escape -p "$where_fullpath")
+	mkdir -p slash/$where
 
 	cat $topdir/templates/systemd/dir1.mount | \
 	sed \
@@ -144,18 +148,15 @@ for OPT_MOUNTBIND in "${OPT_MOUNTBIND[@]}"; do
 	> slash/usr/lib/systemd/system/${where_esc}.mount
 done
 
-# Move under chroot
-mkdir -p rootdir/$chroot_basedir
-mv slash rootdir/$chroot_basedir/$name
 
-echo "Creating Package using $PWD/rootdir/ as root"
+echo "Creating Package using $PWD/slash/ as root"
 fpm -f -t rpm -s dir --verbose -n inaccess-${name} -v ${tag} \
   --description "inaccess-$name" \
   -a all \
   --iteration 1 \
   ${CONFFLAG} \
   --url 'https://www.inaccess.com' \
-  -C rootdir/ .
+  -C slash/ .
 
 echo "Done"
 
